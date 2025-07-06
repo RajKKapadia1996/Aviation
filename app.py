@@ -2,8 +2,11 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.cluster import KMeans
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
 
 # Set Streamlit page config
 st.set_page_config(page_title="Aviation Analytics Dashboard", layout="wide")
@@ -17,9 +20,20 @@ def load_data():
 
 train, test = load_data()
 
+# Label encoding for classification (fit only on train to avoid leakage)
+def label_encode_cols(df, encoders=None):
+    le_cols = ['Class', 'Type of Travel', 'Gender']
+    if encoders is None:
+        encoders = {col: LabelEncoder().fit(df[col].astype(str)) for col in le_cols if col in df.columns}
+    for col in le_cols:
+        if col in df.columns and col in encoders:
+            df[col] = encoders[col].transform(df[col].astype(str))
+    return df, encoders
+
 # Sidebar filters
 st.sidebar.title("Filters")
 
+# Filter choices (before encoding)
 classes = ['All'] + sorted(train['Class'].dropna().unique().tolist())
 types = ['All'] + sorted(train['Type of Travel'].dropna().unique().tolist())
 satisfactions = ['All'] + sorted(train['satisfaction'].dropna().unique().tolist())
@@ -43,7 +57,8 @@ page = st.sidebar.radio("Go to", [
     "Home",
     "Data Overview",
     "Visualizations",
-    "Clustering"
+    "Clustering",
+    "Classification"
 ])
 
 # --- Home Page ---
@@ -52,7 +67,7 @@ if page == "Home":
     st.write("""
     Welcome to the Airline Passenger Analytics Dashboard!
     - Use the sidebar to apply filters and explore the data.
-    - Navigate to see overviews, visualizations, or clustering results.
+    - Navigate to see overviews, visualizations, clustering, or try classification.
     - Data from `train.csv` and `test.csv`.
     """)
 
@@ -175,4 +190,70 @@ elif page == "Clustering":
     else:
         st.warning("Not enough data to perform clustering. Try adjusting the filters.")
 
-st.info("You can expand this dashboard with more features, such as custom clustering, predictions, or other interactive analytics. If you need help, just ask!")
+# --- Classification ---
+elif page == "Classification":
+    st.title("Predict Passenger Satisfaction (Classification)")
+
+    st.write("""
+    **This module uses a Random Forest Classifier to predict if a passenger will be satisfied.**
+    - Uses: Age, Gender, Class, Type of Travel, Flight Distance, Inflight wifi, Seat comfort, Food and drink, Baggage handling, Departure Delay, Arrival Delay
+    """)
+
+    # --- Prepare features and encode ---
+    features = [
+        'Age', 'Gender', 'Class', 'Type of Travel', 'Flight Distance',
+        'Inflight wifi service', 'Seat comfort', 'Food and drink', 'Baggage handling',
+        'Departure Delay in Minutes', 'Arrival Delay in Minutes'
+    ]
+    data = train.dropna(subset=features + ['satisfaction']).copy()
+    X_raw = data[features].copy()
+    y = data['satisfaction']
+
+    # Encode features
+    X_encoded, encoders = label_encode_cols(X_raw)
+    y_enc = LabelEncoder().fit_transform(y)  # satisfied/neutral or dissatisfied
+
+    # --- Train/Test split and model training ---
+    X_train, X_val, y_train, y_val = train_test_split(X_encoded, y_enc, test_size=0.2, random_state=42)
+    clf = RandomForestClassifier(n_estimators=100, random_state=42)
+    clf.fit(X_train, y_train)
+    y_pred = clf.predict(X_val)
+
+    # --- Metrics ---
+    acc = accuracy_score(y_val, y_pred)
+    st.write(f"**Model Validation Accuracy:** {acc:.2%}")
+
+    cm = confusion_matrix(y_val, y_pred)
+    st.write("**Confusion Matrix:**")
+    st.write(pd.DataFrame(cm))
+
+    st.write("**Classification Report:**")
+    st.text(classification_report(y_val, y_pred))
+
+    # --- Prediction form ---
+    st.write("---")
+    st.header("Try a Prediction")
+    # User input form
+    input_dict = {}
+    input_dict['Age'] = st.number_input("Age", min_value=1, max_value=100, value=30)
+    input_dict['Gender'] = st.selectbox("Gender", encoders['Gender'].classes_)
+    input_dict['Class'] = st.selectbox("Class", encoders['Class'].classes_)
+    input_dict['Type of Travel'] = st.selectbox("Type of Travel", encoders['Type of Travel'].classes_)
+    input_dict['Flight Distance'] = st.number_input("Flight Distance", min_value=31, max_value=5000, value=500)
+    input_dict['Inflight wifi service'] = st.slider("Inflight wifi service (0=bad, 5=excellent)", 0, 5, 3)
+    input_dict['Seat comfort'] = st.slider("Seat comfort (0=bad, 5=excellent)", 0, 5, 3)
+    input_dict['Food and drink'] = st.slider("Food and drink (0=bad, 5=excellent)", 0, 5, 3)
+    input_dict['Baggage handling'] = st.slider("Baggage handling (0=bad, 5=excellent)", 0, 5, 3)
+    input_dict['Departure Delay in Minutes'] = st.number_input("Departure Delay (minutes)", 0, 1000, 0)
+    input_dict['Arrival Delay in Minutes'] = st.number_input("Arrival Delay (minutes)", 0, 1000, 0)
+
+    # Encode user input
+    user_input_df = pd.DataFrame([input_dict])
+    user_input_df, _ = label_encode_cols(user_input_df, encoders)
+
+    if st.button("Predict Satisfaction"):
+        pred = clf.predict(user_input_df)[0]
+        label = LabelEncoder().fit(y).inverse_transform([pred])[0]
+        st.success(f"Prediction: The model predicts this passenger will be **{label.upper()}**.")
+
+st.info("This dashboard features analytics, clustering (segmentation), and a live classifier. You can expand with new features, ML models, and uploads—just ask for help!")
