@@ -6,7 +6,9 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.cluster import KMeans
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
+from sklearn.metrics import classification_report, accuracy_score, confusion_matrix, mean_squared_error, r2_score
+from sklearn.linear_model import LinearRegression
+import numpy as np
 
 # Set Streamlit page config
 st.set_page_config(page_title="Aviation Analytics Dashboard", layout="wide")
@@ -32,8 +34,6 @@ def label_encode_cols(df, encoders=None):
 
 # Sidebar filters
 st.sidebar.title("Filters")
-
-# Filter choices (before encoding)
 classes = ['All'] + sorted(train['Class'].dropna().unique().tolist())
 types = ['All'] + sorted(train['Type of Travel'].dropna().unique().tolist())
 satisfactions = ['All'] + sorted(train['satisfaction'].dropna().unique().tolist())
@@ -58,7 +58,8 @@ page = st.sidebar.radio("Go to", [
     "Data Overview",
     "Visualizations",
     "Clustering",
-    "Classification"
+    "Classification",
+    "Regression"
 ])
 
 # --- Home Page ---
@@ -67,7 +68,7 @@ if page == "Home":
     st.write("""
     Welcome to the Airline Passenger Analytics Dashboard!
     - Use the sidebar to apply filters and explore the data.
-    - Navigate to see overviews, visualizations, clustering, or try classification.
+    - Navigate to see overviews, visualizations, clustering, classification, or regression.
     - Data from `train.csv` and `test.csv`.
     """)
 
@@ -82,7 +83,6 @@ elif page == "Data Overview":
 elif page == "Visualizations":
     st.title("Filtered Visualizations")
 
-    # 1. Flight Distance Histogram
     st.subheader("Passenger Distribution by Flight Distance")
     plt.figure(figsize=(8,4))
     filtered_data['Flight Distance'].plot(kind='hist', bins=30)
@@ -92,7 +92,6 @@ elif page == "Visualizations":
     st.pyplot(plt.gcf())
     plt.clf()
 
-    # 2. Class-wise Passenger Distribution
     st.subheader("Passenger Distribution by Class")
     class_counts = filtered_data['Class'].value_counts()
     plt.figure(figsize=(6,4))
@@ -103,7 +102,6 @@ elif page == "Visualizations":
     st.pyplot(plt.gcf())
     plt.clf()
 
-    # 3. Type of Travel Distribution
     st.subheader("Business vs. Personal Travelers")
     travel_counts = filtered_data['Type of Travel'].value_counts()
     plt.figure(figsize=(6,6))
@@ -112,7 +110,6 @@ elif page == "Visualizations":
     st.pyplot(plt.gcf())
     plt.clf()
 
-    # 4. Ancillary Service Ratings
     st.subheader("Ancillary Service Ratings")
     ancillary_services = [
         'Inflight wifi service', 'Seat comfort', 'Food and drink', 'Baggage handling'
@@ -128,7 +125,6 @@ elif page == "Visualizations":
             st.pyplot(plt.gcf())
             plt.clf()
 
-    # 5. Satisfaction by Segment (Class)
     if 'satisfaction' in filtered_data.columns:
         st.subheader("Satisfaction by Class")
         plt.figure(figsize=(8,4))
@@ -137,7 +133,6 @@ elif page == "Visualizations":
         st.pyplot(plt.gcf())
         plt.clf()
 
-    # 6. Correlation Heatmap
     st.subheader("Correlation Matrix (Numerical Features)")
     corr = filtered_data.corr(numeric_only=True)
     plt.figure(figsize=(10,6))
@@ -146,7 +141,6 @@ elif page == "Visualizations":
     st.pyplot(plt.gcf())
     plt.clf()
 
-    # 7. Flight Delay Distribution
     if 'Departure Delay in Minutes' in filtered_data.columns:
         st.subheader("Departure Delay Distribution")
         plt.figure(figsize=(8,4))
@@ -168,7 +162,6 @@ elif page == "Clustering":
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
 
-        # KMeans clustering (3 clusters as default)
         kmeans = KMeans(n_clusters=3, random_state=42).fit(X_scaled)
         cluster_data['Cluster'] = kmeans.labels_
 
@@ -199,7 +192,6 @@ elif page == "Classification":
     - Uses: Age, Gender, Class, Type of Travel, Flight Distance, Inflight wifi, Seat comfort, Food and drink, Baggage handling, Departure Delay, Arrival Delay
     """)
 
-    # --- Prepare features and encode ---
     features = [
         'Age', 'Gender', 'Class', 'Type of Travel', 'Flight Distance',
         'Inflight wifi service', 'Seat comfort', 'Food and drink', 'Baggage handling',
@@ -209,17 +201,14 @@ elif page == "Classification":
     X_raw = data[features].copy()
     y = data['satisfaction']
 
-    # Encode features
     X_encoded, encoders = label_encode_cols(X_raw)
-    y_enc = LabelEncoder().fit_transform(y)  # satisfied/neutral or dissatisfied
+    y_enc = LabelEncoder().fit_transform(y)
 
-    # --- Train/Test split and model training ---
     X_train, X_val, y_train, y_val = train_test_split(X_encoded, y_enc, test_size=0.2, random_state=42)
     clf = RandomForestClassifier(n_estimators=100, random_state=42)
     clf.fit(X_train, y_train)
     y_pred = clf.predict(X_val)
 
-    # --- Metrics ---
     acc = accuracy_score(y_val, y_pred)
     st.write(f"**Model Validation Accuracy:** {acc:.2%}")
 
@@ -230,10 +219,8 @@ elif page == "Classification":
     st.write("**Classification Report:**")
     st.text(classification_report(y_val, y_pred))
 
-    # --- Prediction form ---
     st.write("---")
     st.header("Try a Prediction")
-    # User input form
     input_dict = {}
     input_dict['Age'] = st.number_input("Age", min_value=1, max_value=100, value=30)
     input_dict['Gender'] = st.selectbox("Gender", encoders['Gender'].classes_)
@@ -247,7 +234,6 @@ elif page == "Classification":
     input_dict['Departure Delay in Minutes'] = st.number_input("Departure Delay (minutes)", 0, 1000, 0)
     input_dict['Arrival Delay in Minutes'] = st.number_input("Arrival Delay (minutes)", 0, 1000, 0)
 
-    # Encode user input
     user_input_df = pd.DataFrame([input_dict])
     user_input_df, _ = label_encode_cols(user_input_df, encoders)
 
@@ -256,4 +242,61 @@ elif page == "Classification":
         label = LabelEncoder().fit(y).inverse_transform([pred])[0]
         st.success(f"Prediction: The model predicts this passenger will be **{label.upper()}**.")
 
-st.info("This dashboard features analytics, clustering (segmentation), and a live classifier. You can expand with new features, ML models, and uploads—just ask for help!")
+# --- Regression ---
+elif page == "Regression":
+    st.title("Forecast Passenger Demand (Regression)")
+
+    st.write("""
+    **This module uses Linear Regression to forecast customer demand (proxy: Flight Distance) based on passenger and flight features.**
+    - Example features: Age, Gender, Class, Type of Travel, Inflight wifi, Seat comfort, Food and drink, Baggage handling, Delays, Satisfaction
+    - Try the live prediction interface below!
+    """)
+
+    # Features for regression (you can add more features if needed)
+    reg_features = [
+        'Age', 'Gender', 'Class', 'Type of Travel',
+        'Inflight wifi service', 'Seat comfort', 'Food and drink', 'Baggage handling',
+        'Departure Delay in Minutes', 'Arrival Delay in Minutes'
+    ]
+    target = 'Flight Distance'
+
+    reg_data = train.dropna(subset=reg_features + [target]).copy()
+    X_reg_raw = reg_data[reg_features]
+    y_reg = reg_data[target]
+
+    # Encode categorical features
+    X_reg_encoded, reg_encoders = label_encode_cols(X_reg_raw)
+
+    # Train/test split and regression model
+    X_reg_train, X_reg_val, y_reg_train, y_reg_val = train_test_split(X_reg_encoded, y_reg, test_size=0.2, random_state=42)
+    reg_model = LinearRegression()
+    reg_model.fit(X_reg_train, y_reg_train)
+    y_reg_pred = reg_model.predict(X_reg_val)
+
+    rmse = np.sqrt(mean_squared_error(y_reg_val, y_reg_pred))
+    r2 = r2_score(y_reg_val, y_reg_pred)
+    st.write(f"**Validation RMSE:** {rmse:.2f}")
+    st.write(f"**Validation R-squared:** {r2:.3f}")
+
+    st.write("---")
+    st.header("Try a Demand Forecast (Flight Distance Prediction)")
+    reg_input_dict = {}
+    reg_input_dict['Age'] = st.number_input("Age", min_value=1, max_value=100, value=30, key="reg_age")
+    reg_input_dict['Gender'] = st.selectbox("Gender", reg_encoders['Gender'].classes_, key="reg_gender")
+    reg_input_dict['Class'] = st.selectbox("Class", reg_encoders['Class'].classes_, key="reg_class")
+    reg_input_dict['Type of Travel'] = st.selectbox("Type of Travel", reg_encoders['Type of Travel'].classes_, key="reg_type")
+    reg_input_dict['Inflight wifi service'] = st.slider("Inflight wifi service (0=bad, 5=excellent)", 0, 5, 3, key="reg_wifi")
+    reg_input_dict['Seat comfort'] = st.slider("Seat comfort (0=bad, 5=excellent)", 0, 5, 3, key="reg_seat")
+    reg_input_dict['Food and drink'] = st.slider("Food and drink (0=bad, 5=excellent)", 0, 5, 3, key="reg_food")
+    reg_input_dict['Baggage handling'] = st.slider("Baggage handling (0=bad, 5=excellent)", 0, 5, 3, key="reg_baggage")
+    reg_input_dict['Departure Delay in Minutes'] = st.number_input("Departure Delay (minutes)", 0, 1000, 0, key="reg_dep_delay")
+    reg_input_dict['Arrival Delay in Minutes'] = st.number_input("Arrival Delay (minutes)", 0, 1000, 0, key="reg_arr_delay")
+
+    reg_user_input_df = pd.DataFrame([reg_input_dict])
+    reg_user_input_df, _ = label_encode_cols(reg_user_input_df, reg_encoders)
+
+    if st.button("Forecast Flight Distance (as demand proxy)"):
+        reg_pred = reg_model.predict(reg_user_input_df)[0]
+        st.success(f"Forecasted Flight Distance (demand proxy): **{reg_pred:.2f} units**")
+
+st.info("This dashboard features analytics, clustering, classification, and regression for demand forecasting. Expand with more models or upload features if you need!")
