@@ -5,7 +5,9 @@ This Streamlit dashboard analyzes airline passenger data for trends, satisfactio
 ## Features
 
 - Explore training and test datasets (`train.csv` and `test.csv`)
+- Filter by Class, Type of Travel, and Satisfaction
 - Visualize flight distance, passenger class, travel type, delays, satisfaction, and more
+- Perform K-Means clustering for passenger segmentation
 - Interactive sidebar navigation
 
 ## How to Run Locally
