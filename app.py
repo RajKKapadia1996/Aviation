@@ -84,7 +84,7 @@ elif page == "Visualizations":
     class_counts.plot(kind='bar')
     plt.xlabel('Class')
     plt.ylabel('Count')
-    plt.title('Passengers by Class (Filtered)")
+    plt.title('Passengers by Class (Filtered)')
     st.pyplot(plt.gcf())
     plt.clf()
 
